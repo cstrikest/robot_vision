@@ -10,6 +10,7 @@ import RPi.GPIO as GPIO
 import Adafruit_PCA9685 as PCA
 import time
 
+
 # ====== SET VARS ======
 kp = 0.25  # PID parameters
 ki = 0.01
@@ -50,21 +51,36 @@ pwm = PCA.PCA9685(0x40)  # I2C PWM IO for servo
 pwm.set_pwm_freq(servo_PWM_freq)
 
 # ====== FUNCTION DEFINE ======
+# Camera func
 # Open camera and show window
 def open_camera():
-	cam = cv2.VideoCapture(0)
-	cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-	cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-	if not cam.isOpened():
-		exit_cam(cam)
+	camera = cv2.VideoCapture(0)
+	camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+	camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+	if not camera.isOpened():
+		exit_cam(camera)
 		print("Unable to initialize camera.")
 		exit(1)
 	
 	# show window
 	cv2.namedWindow("camera", 0)
 	cv2.resizeWindow("camera", 640, 480)
-	return cam
+	cv2.moveWindow("camera", 0, 0)
+	return camera
 
+# show window
+def show_window(img):
+	cv2.imshow("camera", img)
+
+# Exit camera
+def exit_cam(cam):
+	cam.release()
+	cv2.destroyAllWindows()
+
+# Mouse func
+# TODO 鼠标点击选择
+
+# Read data func
 # Read HSV range from json
 def read_color_rangeHSV(filepath, color):
 	config = configparser.ConfigParser()
@@ -86,12 +102,7 @@ def write_color_rangeHSV(filepath, color, upper_range, lower_range):
 	for i in range(0, 3):
 		config.set(color, "lower_" + char[i], str(lower_range[i]))
 	config.write(open(filepath, "w"))
-
-# Exit camera
-def exit_cam(cam):
-	cam.release()
-	cv2.destroyAllWindows()
-
+	
 # Servo func
 # set servo to any angle
 def set_servo_angle(chn, angle):
@@ -101,7 +112,7 @@ def set_servo_angle(chn, angle):
 # down arm position
 def arm_down():
 	set_servo_angle(0, 14)
-	
+
 # default arm position
 def arm_up():
 	set_servo_angle(0, 31)
@@ -182,17 +193,21 @@ class PID:
 		if len(self.bias) > self.max_history_bias:
 			self.bias.pop(0)
 		return self.Kp * (self.bias[-1]) + self.Ki * (sum(self.bias)) + self.Kd * (self.bias[-1] - self.bias[-2])
-	
+
 # ====== MAIN PROGRAM ======
+# init
 cam = open_camera()
 arm_up()
 controller = PID(kp, ki, kd, pid_target, max_history_bias)
+
+# startup beep
 for i in range(300, 600):
 	beep(i * 10, int(i / 150))
-	
+
 # main loop
 while True:
 	ret, frame = cam.read()
+	
 	# if can'r read from camera
 	if not ret:
 		exit_cam(cam)
@@ -203,14 +218,15 @@ while True:
 	frame_Blur = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 	upper, lower = read_color_rangeHSV("./config.ini", "redBall")
 	mask = cv2.inRange(frame_Blur, lower, upper)
-	# mask = cv2.medianBlur(mask, 9)
-	mask = cv2.erode(mask, None, iterations = 3)
-	mask = cv2.dilate(mask, None, iterations = 10)
+	mask = cv2.medianBlur(mask, 9)
+	mask = cv2.erode(mask, None, iterations = 4)
+	mask = cv2.dilate(mask, None, iterations = 13)
 	ret, binary = cv2.threshold(mask, 15, 255, cv2.THRESH_BINARY)
 	contours, hierarchy = cv2.findContours(binary.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 	
 	# if target detected
 	if len(contours) > 0:
+		
 		# refresh PID controller
 		if not is_target:
 			is_target = True
@@ -223,7 +239,8 @@ while True:
 			if w * h > 300 and hierarchy[0][i][2] == -1:
 				current_father = hierarchy[0][i][2]
 				moment = cv2.moments(contours[i])
-				center = (int(moment["m10"] / moment["m00"]), int(moment["m01"] / moment["m00"]))  # center point of mask
+				center = (
+				int(moment["m10"] / moment["m00"]), int(moment["m01"] / moment["m00"]))  # center point of mask
 				
 				# draw target information
 				dis = 10 / math.sqrt(w * h)
@@ -233,7 +250,7 @@ while True:
 				cv2.circle(frame, center, 3, (0, 255, 0), 2)
 				cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
 				cv2.line(frame, center, (320, center[1]), (255, 0, 0), 1)
-				
+	
 	# if loss target
 	elif is_target:
 		loss_target_count += 1
@@ -246,12 +263,14 @@ while True:
 			motor_break()
 			arm_catch()
 			is_target = False
+			
+			# catch beep
 			for i in range(600, 680):
 				beep(i * 10, int(i / 200))
 			for i in range(600, 680):
 				beep(i * 10, int(i / 200))
-		
-		# TODO: 如果从下面出去才抓，单纯丢失目标不抓
+	
+	# TODO: 如果从下面出去才抓，单纯丢失目标不抓
 	
 	# draw screen
 	cv2.line(frame, (320, 0), (320, 1000), (0, 0, 0), 1)  # center line
@@ -279,8 +298,8 @@ while True:
 		cv2.rectangle(frame, (540, 390), (580, 390 - int(R_motor_para)), (0, 255, 255), -1)
 	
 	# show screen
-	cv2.imshow("camera", frame)
-	# cv2.imshow("mask", binary)
+	show_window(frame)
+	# 	# cv2.imshow("mask", binary)
 	
 	# if quit
 	if cv2.waitKey(10) == ord("q"):
