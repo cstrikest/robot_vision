@@ -12,11 +12,12 @@ import time
 
 
 # ====== SET VARS ======
+target_color = "blueBall"
 kp = 0.25  # PID parameters
 ki = 0.01
-kd = 0.08
+kd = 0.05
 pid_target = 0
-max_history_bias = 50
+max_history_bias = 60
 pos = 0  # target bias to frame center
 dis = 0  # target distance from camera
 motor_para = 0  # motor parameters
@@ -78,7 +79,7 @@ def exit_cam(cam):
 	cv2.destroyAllWindows()
 
 # Mouse func
-# TODO 鼠标点击选择
+# TODO Mouse click
 
 # Read data func
 # Read HSV range from json
@@ -142,8 +143,8 @@ def motor_drive(L, R):
 	GPIO.output(M1B, 1)
 	GPIO.output(M2A, 1)
 	GPIO.output(M2B, 1)
-	L = L / 180 * 100 + 10
-	R = R / 180 * 100
+	L = L / 180 * 100 + 30
+	R = R / 180 * 100 + 20
 	if L > 100:
 		L = 99.99
 	if L < 0:
@@ -196,6 +197,7 @@ class PID:
 
 # ====== MAIN PROGRAM ======
 # init
+upper, lower = read_color_rangeHSV("./config.ini", target_color)
 cam = open_camera()
 arm_up()
 controller = PID(kp, ki, kd, pid_target, max_history_bias)
@@ -215,14 +217,13 @@ while True:
 		exit(0)
 	
 	# image process
-	frame_Blur = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-	upper, lower = read_color_rangeHSV("./config.ini", "redBall")
-	mask = cv2.inRange(frame_Blur, lower, upper)
-	mask = cv2.medianBlur(mask, 9)
+	HSV_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+	HSV_frame = cv2.medianBlur(HSV_frame, 9)
+	mask = cv2.inRange(HSV_frame, lower, upper)
 	mask = cv2.erode(mask, None, iterations = 4)
 	mask = cv2.dilate(mask, None, iterations = 13)
-	ret, binary = cv2.threshold(mask, 15, 255, cv2.THRESH_BINARY)
-	contours, hierarchy = cv2.findContours(binary.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+	# ret, binary = cv2.threshold(mask, 15, 255, cv2.THRESH_BINARY)
+	contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 	
 	# if target detected
 	if len(contours) > 0:
@@ -270,7 +271,7 @@ while True:
 			for i in range(600, 680):
 				beep(i * 10, int(i / 200))
 	
-	# TODO: 如果从下面出去才抓，单纯丢失目标不抓
+	# TODO: out from below, then catch
 	
 	# draw screen
 	cv2.line(frame, (320, 0), (320, 1000), (0, 0, 0), 1)  # center line
@@ -284,8 +285,8 @@ while True:
 	if is_target:
 		# drive motor
 		motor_para = controller.update(pos)
-		L_motor_para = 100 - motor_para / 3
-		R_motor_para = 100 + motor_para / 3
+		L_motor_para = 100 - motor_para / 4
+		R_motor_para = 100 + motor_para / 4
 		
 		# draw information to screen
 		motor_drive(L_motor_para, R_motor_para)
